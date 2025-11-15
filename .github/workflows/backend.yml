@@ -1,0 +1,53 @@
+name: Backend Workflow
+
+on:
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: cineverse/backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Add SSH key and known host
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy image on EC2 (pull from ECR)
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/cineverse/backend:${{ github.sha }}
+          AWS_REGION: ap-southeast-2
+        run: |
+          # Use local AWS CLI to get ECR auth token and pipe to remote docker login,
+          # then pull and run the image on the EC2 host.
+          aws ecr get-login-password --region $AWS_REGION | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && docker pull $IMAGE_URI && docker stop cineverse-backend || true && docker rm cineverse-backend || true && docker run -d --name cineverse-backend -p 80:3000 --restart unless-stopped $IMAGE_URI"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/id_rsa
