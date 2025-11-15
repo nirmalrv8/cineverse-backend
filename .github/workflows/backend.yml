@@ -46,7 +46,7 @@ jobs:
         run: |
           # Use local AWS CLI to get ECR auth token and pipe to remote docker login,
           # then pull and run the image on the EC2 host.
-          aws ecr get-login-password --region $AWS_REGION | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && docker pull $IMAGE_URI && docker stop cineverse-backend || true && docker rm cineverse-backend || true && docker run -d --name cineverse-backend -p 80:3000 --restart unless-stopped $IMAGE_URI"
+          aws ecr get-login-password --region $AWS_REGION | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && docker pull $IMAGE_URI && docker stop cineverse-backend || true && docker rm cineverse-backend || true && docker run -d --name cineverse-backend -p 80:3000 --env-file /home/ec2-user/cineverse.env --restart unless-stopped $IMAGE_URI"
 
       - name: Cleanup SSH key
         if: always()
