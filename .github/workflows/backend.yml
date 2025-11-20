@@ -2,6 +2,11 @@ name: Backend Workflow
 
 on:
   workflow_dispatch: # Manual trigger
+    inputs:
+      ec2_host:
+        description: 'EC2 instance public IP or DNS'
+        required: true
+        type: string
 
 jobs:
   backend:
@@ -31,13 +36,11 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       - name: Add SSH key and known host
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ github.event.inputs.ec2_host }}" >> ~/.ssh/known_hosts
 
       - name: Deploy image on EC2 (pull from ECR)
         env:
@@ -46,7 +49,7 @@ jobs:
         run: |
           # Use local AWS CLI to get ECR auth token and pipe to remote docker login,
           # then pull and run the image on the EC2 host.
-          aws ecr get-login-password --region $AWS_REGION | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && docker pull $IMAGE_URI && docker stop cineverse-backend || true && docker rm cineverse-backend || true && docker run -d --name cineverse-backend -p 80:3000 --env-file /home/ec2-user/cineverse.env --restart unless-stopped $IMAGE_URI"
+          aws ecr get-login-password --region $AWS_REGION | ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ${{ secrets.EC2_USER }}@${{ github.event.inputs.ec2_host }} "docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} && docker pull $IMAGE_URI && docker stop cineverse-backend || true && docker rm cineverse-backend || true && docker run -d --name cineverse-backend -p 80:3000 --env-file /home/ec2-user/cineverse.env --restart unless-stopped $IMAGE_URI"
 
       - name: Cleanup SSH key
         if: always()
